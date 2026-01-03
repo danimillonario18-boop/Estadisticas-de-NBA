@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?
+  name          String?
+  role          String    @default("USER") // USER, ADMIN
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  accounts      Account[]
+  sessions      Session[]
+  profile       Profile?
+  picks         Pick[]
+  parlays       Parlay[]
+  follows       Follow[]  @relation("UserFollows")
+  followers     Follow[]  @relation("UserFollowers")
+  auditLogs     AuditLog[]
+  notifications Notification[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Profile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  username     String   @unique
+  displayName  String?
+  bio          String? 
+  avatarUrl    String?
+  country      String?
+  currency     String   @default("USD")
+  isPublic     Boolean  @default(true)
+  isVerified   Boolean  @default(false)
+  socials      String?    // Twitter, Instagram, Telegram links (JSON string)
+  bankroll     Float    @default(0) // Initial bankroll in units
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  picks  Pick[]
+  parlays Parlay[]
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("UserFollows", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+}
+
+model Sport {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  
+  leagues   League[]
+  picks     Pick[]
+  events    Event[]
+}
+
+model League {
+  id        String   @id @default(cuid())
+  sportId   String
+  name      String
+  country   String?
+  createdAt DateTime @default(now())
+
+  sport Sport   @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  teams Team[]
+  picks Pick[]
+  events Event[]
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  leagueId  String
+  name      String
+  createdAt DateTime @default(now())
+
+  league League  @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  events Event[] @relation("HomeTeam")
+  awayEvents Event[] @relation("AwayTeam")
+}
+
+model Event {
+  id              String   @id @default(cuid())
+  providerEventId String?  @unique
+  sportId         String
+  leagueId        String
+  homeTeamId      String
+  awayTeamId      String
+  startTime       DateTime
+  status          String   @default("SCHEDULED") // SCHEDULED, LIVE, FINISHED, POSTPONED, CANCELLED
+  score           String?    // {home: 0, away: 0} (JSON string)
+  provider        String   @default("MOCK") // MOCK, THESPORTSDB, etc.
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sport     Sport @relation(fields: [sportId], references: [id])
+  league    League @relation(fields: [leagueId], references: [id])
+  homeTeam  Team  @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam  Team  @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  picks     Pick[]
+}
+
+model Book {
+  id   String @id @default(cuid())
+  name String @unique
+  
+  picks Pick[]
+}
+
+model Pick {
+  id            String   @id @default(cuid())
+  userId        String
+  profileId     String?
+  eventId       String?
+  sportId       String
+  leagueId      String
+  marketType    String   // MONEYLINE, SPREAD, TOTAL, PROP, OTHER
+  selectionText String   // Team name, Over/Under, etc.
+  line          Float?   // For spreads and totals
+  oddsDecimal  Float
+  stakeUnits    Float
+  bookId        String?
+  placedAt      DateTime @default(now())
+  status        String   @default("PENDING") // PENDING, WON, LOST, PUSH, VOID, CASHOUT
+  settledAt     DateTime?
+  profitUnits   Float    @default(0)
+  note          String? 
+  visibility    String   @default("PUBLIC") // PUBLIC, PRIVATE, FOLLOWERS
+  isSample      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile    Profile?   @relation(fields: [profileId], references: [id])
+  event      Event?     @relation(fields: [eventId], references: [id])
+  sport      Sport      @relation(fields: [sportId], references: [id])
+  league     League     @relation(fields: [leagueId], references: [id])
+  book       Book?      @relation(fields: [bookId], references: [id])
+  parlayLegs ParlayLeg[]
+
+  @@index([userId, status, settledAt])
+  @@index([eventId])
+  @@index([leagueId])
+}
+
+model Parlay {
+  id              String   @id @default(cuid())
+  userId          String
+  profileId       String?
+  placedAt        DateTime @default(now())
+  oddsDecimalTotal Float
+  stakeUnits      Float
+  status          String   @default("PENDING") // PENDING, WON, LOST, PUSH, VOID, CASHOUT
+  settledAt       DateTime?
+  profitUnits     Float    @default(0)
+  note            String? 
+  isSample        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile Profile?   @relation(fields: [profileId], references: [id])
+  legs   ParlayLeg[]
+
+  @@index([userId, status, settledAt])
+}
+
+model ParlayLeg {
+  id        String  @id @default(cuid())
+  parlayId  String
+  pickId    String?
+  eventId   String?
+  sportId   String?
+  leagueId  String?
+  marketType String
+  selectionText String
+  line      Float?
+  oddsDecimal Float
+  pick      Pick?   @relation(fields: [pickId], references: [id], onDelete: Cascade)
+  
+  parlay Parlay @relation(fields: [parlayId], references: [id], onDelete: Cascade)
+
+  @@unique([parlayId, eventId, marketType, selectionText])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String   // PICK, PARLAY, PROFILE, USER
+  entityId   String
+  userId     String
+  action     String   // CREATE, UPDATE, DELETE, SETTLE, EDIT_PENDING
+  beforeJson String?
+  afterJson  String?
+  reason     String? 
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // NEW_FOLLOW, NEW_PICK, SETTLED_PICK, etc.
+  payload   String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([createdAt])
+}
